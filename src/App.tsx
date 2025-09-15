@@ -6,15 +6,41 @@ import {
   onAuthStateChanged,
   signOut,
 } from "firebase/auth";
+import { db } from "./firebase";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+
+type U = { uid: string; email: string | null };
 
 export default function App() {
-  const [email, setEmail] = useState<string | null>(null);
+  const [user, setUser] = useState<U | null>(null);
+  const [role, setRole] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => {
-      console.log("onAuthStateChanged →", u?.email ?? null);
-      setEmail(u?.email ?? null);
+    return onAuthStateChanged(auth, async (u) => {
+      const me = u ? { uid: u.uid, email: u.email } : null;
+      setUser(me);
+      setRole(null);
+      if (me) {
+        try {
+          const ref = doc(db, "users", me.uid);
+          const snap = await getDoc(ref);
+          if (!snap.exists()) {
+            // utwórz swój dokument, jeśli jeszcze nie ma
+            await setDoc(ref, {
+              email: me.email,
+              role: "member",
+              createdAt: serverTimestamp(),
+            });
+            setRole("member");
+          } else {
+            setRole((snap.data() as any)?.role ?? "member");
+          }
+        } catch (e: any) {
+          console.error(e);
+          setErr(`${e.code || ""} ${e.message || e}`);
+        }
+      }
     });
   }, []);
 
@@ -29,25 +55,32 @@ export default function App() {
     }
   }
 
-  if (!email) {
+  if (!user) {
     return (
       <div style={{ fontFamily: "system-ui", padding: 24 }}>
         <h1>Baseny Morzkulc — test logowania</h1>
         <button onClick={handleLogin}>Zaloguj się przez Google (popup)</button>
-        {err && (
-          <pre style={{ color: "salmon", whiteSpace: "pre-wrap", marginTop: 16 }}>
-            {err}
-          </pre>
-        )}
-        <p style={{marginTop:12}}>Otwórz DevTools → Console i obserwuj logi.</p>
+        {err && <pre style={{ color: "salmon" }}>{err}</pre>}
       </div>
     );
   }
 
   return (
     <div style={{ fontFamily: "system-ui", padding: 24 }}>
-      <h1>Witaj, {email}</h1>
-      <button onClick={() => signOut(auth)}>Wyloguj</button>
+      <h1>Witaj, {user.email}</h1>
+      <p>Rola: <b>{role ?? "—"}</b></p>
+
+      {role === "admin" ? (
+        <div style={{ marginTop: 16, padding: 12, border: "1px solid #444", borderRadius: 8 }}>
+          <b>Panel administratora (placeholder)</b>
+          <p>Tu podłączysz swoje widoki admina.</p>
+        </div>
+      ) : (
+        <p>Nie masz uprawnień admina.</p>
+      )}
+
+      <button style={{ marginTop: 20 }} onClick={() => signOut(auth)}>Wyloguj</button>
+      {err && <pre style={{ color: "salmon" }}>{err}</pre>}
     </div>
   );
 }
